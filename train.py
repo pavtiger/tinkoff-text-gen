@@ -4,6 +4,7 @@ import string
 import json
 from collections import Counter
 from pathlib import Path
+from sys import stdin
 
 import torch
 from torch import nn, optim
@@ -22,10 +23,10 @@ print_every = 1000
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", required=False,
-                        help="Input directory to read texts from", default="")
-    parser.add_argument("--model", required=False,
-                        help="Path to file to save trained model to", default="")
+    parser.add_argument("-i", "--input-dir", required=False,
+                        help="Input directory to read texts from")
+    parser.add_argument("-m", "--model", required=True,
+                        help="Path to file to save trained model to")
     return parser.parse_args()
 
 
@@ -38,31 +39,43 @@ def get_uniq_words(words):
     return sorted(word_counts, key=word_counts.get, reverse=True)
 
 
+def process_text(text):
+    clean_text = "".join(
+        [char for char in text if char not in string.punctuation]).lower()
+    clean_text = remove_consecutive_spaces(clean_text)
+    return clean_text
+
+
 def load(load_directory):
     train_texts = []
-    punctuation = string.punctuation
 
-    for root, _, files in os.walk(load_directory):
-        for text_file in files:
-            path = os.path.join(root, text_file)
-            extension = os.path.splitext(path)[1]
+    if load_directory is None:
+        print("Enter text. Finish with EOF character. (Ctrl + D)\n")
+        text = ""
+        for line in stdin:
+            text += line
+        train_texts.append(process_text(text))
 
-            if extension == ".txt":
-                try:
-                    with open(path, encoding='utf-8', mode="r") as f:
-                        text = f.read().replace('\n', ' ')
+    else:
+        for root, _, files in os.walk(load_directory):
+            for text_file in files:
+                path = os.path.join(root, text_file)
+                extension = os.path.splitext(path)[1]
 
-                        clean_text = "".join(
-                            [char for char in text if char not in punctuation]).lower()
-                        clean_text = remove_consecutive_spaces(clean_text)
-                        train_texts.append(clean_text)
-                except:
-                    # Needed just in case if encoding of the file is strange (for example )
-                    print(f"error importing path: {path}")
+                if extension == ".txt":
+                    try:
+                        with open(path, encoding='utf-8', mode="r") as f:
+                            text = f.read().replace('\n', ' ')
+                            train_texts.append(process_text(text))
+                    except:
+                        # Needed just in case if encoding of the file is strange
+                        # (I've seen this in some Kaggle datasets)
+                        print(f"error importing path: {path}")
 
-        text = '\n'.join(train_texts)
-        print(f'Loaded {len(text)} words')
-        return text.split(' ')
+    assert(len(train_texts) != 0)
+    text = ' '.join(train_texts)
+    print(f'Loaded {len(text)} symbols')
+    return text.split(' ')
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -133,7 +146,7 @@ def train(ds_train, ds_test, model):
     scheduler = StepLR(opt, step_size=8, gamma=0.0001)
 
     for epoch in range(num_epoch):
-        print(f"Epoch {epoch} started")
+        print(f"Epoch {epoch + 1} started")
         print('-' * 70)
 
         state_h, state_c = model.init_state(seq_length)
@@ -178,7 +191,7 @@ def train(ds_train, ds_test, model):
         test_loss = sum(test_errors) / len(test_errors)
 
         print('-' * 70)
-        print(f'epoch {epoch + 1} ended. train_loss: {train_loss}, test_loss: {test_loss}')
+        print(f'Epoch {epoch + 1} ended. train_loss: {train_loss}, test_loss: {test_loss}')
         print()
 
 
